@@ -1,0 +1,75 @@
+Thie repository include R script (gene_prioritization.R) to perform gene prioritization approach proposed in the publication (Watanabe et al. Nat. Genet. 2022) and example input and output files for insomnia meta-analysis under ISM folder.
+
+You can apply this R script to perform gene prioritization for any other GWAS.
+To do so, the script expect several input files. Please follow the below steps to prepare input files.
+
+data folder contains other data used in gene_prioritization.R
+
+Step 1. run FUMA on full GWAS summary statistics
+Parameters are as specified in ISM/gwas/params.config
+Change reference panel accordingly.
+Download results from FUMA and locate ISM/gwas/.
+The folder only include files necessary to perform gene prioritization, not full results you can download from FUMA.
+Some of the large files are compressed (annov.txt.gz, annot.txt.gz and eqtl.txt.gz).
+Although the parameter include CI mapping, it's not used in this prioritization approach and related files are not included in this example.
+
+Step 2. run FINEMAP
+Use FINEMAP with LDstore to perform statistical file mapping for loci identified in step 1.
+For each locus, take SNPs within 50kb from the top SNP.
+The followings are example commands to perform FINEMAP.
+
+### create LD matrix
+plink --bfile $reference_panel_pfile --extract locus_$i.snps \
+	--memory 50000 \
+	--make-bed --out locus_$i
+ldstore --bplink locus_$i --n-threads 1 \
+	--bcor locus_$i.bcor
+ldstore --bcor locus_$i.bcor_1 \
+	--matrix $locus_$i.ld
+
+### run FINEMAP
+finemap_v1.3.1_x86_64 --sss --group-snps \
+    --in-files master.txt \
+    --n-causal-snps 10 \
+    --dataset $i
+
+Please follow http://www.christianbenner.com/index_v1.1.html#input to create master.txt file for your GWAS.
+
+Following steps require a file cred_snps.txt.gz with the following format and locate under ISM/finemap folder.
+
+locus	uniqID	chr	pos	A1	A2	maf	prob	log10bf
+1	1:4714995:A_G	1	4714995	G	A	0.34425	0.348147	2.4308
+1	1:4723917:A_G	1	4723917	G	A	0.33989	0.129744	1.87663
+1	1:4724231:C_G	1	4724231	C	G	0.33973	0.118083	1.82995
+
+
+Step 3. run eQTL colocalization
+Use coloc library on R to perform colocalization of the GWAS of the phenotype of interest and eQTLs.
+For each locus, take SNPs within the locus boundary defined in the step 1 FUMA with 10kb extended both side.
+The following is an example R script.
+
+### prepare dataset
+### assuimg there are two data frame eqtl (with eQTL summary statistics), snps (with GWAS summary statistics and MAF).
+ds1 <- list(type="cc", snp=eqtl$uniqID, pvalues=snps$p[match(eqtl$uniqID, snps$uniqID)], N=snps$N[match(eqtl$uniqID, snps$uniqID)])
+ds2 = list(type="quant", snp=eqtl$uniqID, pvalues=eqtl$p, N=eqtl$N)
+prob_h4 <- as.numeric(coloc.abf(dataset1=ds1, dataset2=ds2, MAF=snps$MAF[match(eqtl$uniqID,     snps$uniqID)])$summary[6])
+
+Following steps require a file coloc_eqtls.txt with the following format and locate under ISM/coloc folder.
+
+ds	gene	nSNPs	pp.h4
+PsychENCODE_eQTLs	ENSG00000116771	139	0.000532006766331862
+PsychENCODE_eQTLs	ENSG00000116786	115	0.980123952032653
+PsychENCODE_eQTLs	ENSG00000132906	136	1.18336293612532e-05
+
+4. run FUMA on credible SNPs from step 2
+Same for step 1 but use the GWAS summary statistics filtered on credible SNPs identified in step 2.
+Since FUMA web application does not allow to specify second P-value threshold higher than 1e-5 but you would want to annotate all credible SNPs, you can assign fake P-value 9.9e-6 in the P-value columns if SNPs have p>=1e-5.
+You can already filter credible SNPs by PIP (prob columns). In the paper, PIP>0.1 was used.
+But this filtering is performed in the step 5 as well. In case you want to play around with PIP threshold for gene mapping, you can annotate all credible SNPs here and filter in the step 5.
+Download the results from FUMA and locate ISM/cred/.
+Required files are the same as step 1, and compress large text files.
+
+5. Gene mapping
+Defining HC genes, HC-1 and HC-m genes, and filtering by PPI are all done in gene_prioritization.R
+The script does not accept argument, please change variables as needed.
+
